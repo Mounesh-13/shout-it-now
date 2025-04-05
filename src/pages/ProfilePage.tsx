@@ -16,8 +16,12 @@ const ProfilePage = () => {
   const [profileExists, setProfileExists] = useState(false);
   
   // Check if this is the current user's profile
-  const isCurrentUserProfile = userId === 'profile' || (!userId && user) || (userId && user && userId === user.id);
-  const profileId = isCurrentUserProfile ? user?.id : userId;
+  const isCurrentUserProfile = 
+    userId === 'profile' || 
+    (!userId && user) || 
+    (userId && user && userId === user.id);
+    
+  const profileId = isCurrentUserProfile && user ? user.id : userId;
 
   // Check if the profile exists
   useEffect(() => {
@@ -93,7 +97,7 @@ const ProfilePage = () => {
         ) : (
           <Profile 
             userId={profileId || ''} 
-            isCurrentUser={isCurrentUserProfile}
+            isCurrentUser={!!user && profileId === user.id}
           />
         )}
       </div>

@@ -13,17 +13,24 @@ interface ProfileProps {
 }
 
 type ProfileData = Database['public']['Tables']['profiles']['Row'];
-type RantData = Database['public']['Tables']['rants']['Row'] & {
-  profiles?: {
-    username: string | null;
-    avatar_url: string | null;
-  } | null;
+type RantWithUser = {
+  id: string;
+  content: string;
+  created_at: string;
+  user_id: string;
+  likes_count: number;
+  comments_count: number;
+  user: {
+    id: string;
+    name: string;
+    avatar_url?: string | null;
+  };
 };
 
 const Profile = ({ userId, isCurrentUser = false }: ProfileProps) => {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
-  const [userRants, setUserRants] = useState<any[]>([]);
-  const [likedRants, setLikedRants] = useState<any[]>([]);
+  const [userRants, setUserRants] = useState<RantWithUser[]>([]);
+  const [likedRants, setLikedRants] = useState<RantWithUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
   
@@ -32,63 +39,68 @@ const Profile = ({ userId, isCurrentUser = false }: ProfileProps) => {
     const fetchProfileData = async () => {
       setIsLoading(true);
       try {
-        const { data, error } = await supabase
+        // Fetch profile data
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', userId)
           .single();
         
-        if (error) {
-          console.error('Error fetching profile:', error);
+        if (profileError) {
+          console.error('Error fetching profile:', profileError);
           return;
         }
         
-        setProfileData(data);
+        setProfileData(profileData);
+        
+        // Fetch user rants separately
+        const { data: rantsData, error: rantsError } = await supabase
+          .from('rants')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        
+        if (rantsError) {
+          console.error('Error fetching user rants:', rantsError);
+          return;
+        }
+        
+        // Fetch profile data for all rants
+        if (rantsData && rantsData.length > 0) {
+          const { data: userData, error: userError } = await supabase
+            .from('profiles')
+            .select('id, username, avatar_url')
+            .eq('id', userId)
+            .single();
+            
+          if (userError) {
+            console.error('Error fetching user data:', userError);
+            return;
+          }
+          
+          // Format data with user information
+          const formattedRants = rantsData.map(rant => ({
+            ...rant,
+            user: {
+              id: rant.user_id,
+              name: userData?.username || 'Anonymous',
+              avatar_url: userData?.avatar_url
+            }
+          }));
+          
+          setUserRants(formattedRants);
+        } else {
+          setUserRants([]);
+        }
       } catch (error) {
-        console.error('Error fetching profile:', error);
+        console.error('Error in profile data fetching:', error);
       } finally {
         setIsLoading(false);
       }
     };
     
-    const fetchUserRants = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('rants')
-          .select(`
-            *,
-            profiles:user_id (
-              username,
-              avatar_url
-            )
-          `)
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false });
-        
-        if (error) {
-          console.error('Error fetching user rants:', error);
-          return;
-        }
-        
-        // Format data to match the expected structure
-        const formattedRants = data.map(rant => ({
-          ...rant,
-          user: {
-            id: rant.user_id,
-            name: rant.profiles?.username || 'Anonymous',
-            avatar_url: rant.profiles?.avatar_url
-          }
-        }));
-        
-        setUserRants(formattedRants);
-      } catch (error) {
-        console.error('Error fetching user rants:', error);
-      }
-    };
-    
     if (userId) {
       fetchProfileData();
-      fetchUserRants();
     }
   }, [userId]);
   

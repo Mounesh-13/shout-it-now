@@ -8,15 +8,22 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Database } from '@/integrations/supabase/types';
 
-type RantWithProfile = Database['public']['Tables']['rants']['Row'] & {
-  profiles?: {
-    username: string | null;
-    avatar_url: string | null;
-  } | null;
+type RantWithUser = {
+  id: string;
+  content: string;
+  created_at: string;
+  user_id: string;
+  likes_count: number;
+  comments_count: number;
+  user: {
+    id: string;
+    name: string;
+    avatar_url?: string | null;
+  };
 };
 
 const Index = () => {
-  const [rants, setRants] = useState<any[]>([]);
+  const [rants, setRants] = useState<RantWithUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -34,45 +41,65 @@ const Index = () => {
       const from = (pageNumber - 1) * 10;
       const to = from + 9;
       
-      const { data, error } = await supabase
+      // First, fetch the rants
+      const { data: rantsData, error: rantsError } = await supabase
         .from('rants')
-        .select(`
-          *,
-          profiles:user_id (
-            username,
-            avatar_url
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false })
         .range(from, to);
       
-      if (error) {
-        console.error('Error fetching rants:', error);
+      if (rantsError) {
+        console.error('Error fetching rants:', rantsError);
         return;
       }
       
-      // Format data to match the expected structure
-      const formattedRants = data.map(rant => ({
-        ...rant,
-        user: {
-          id: rant.user_id,
-          name: rant.profiles?.username || 'Anonymous',
-          avatar_url: rant.profiles?.avatar_url
+      // If we have rants, fetch the associated profiles
+      if (rantsData && rantsData.length > 0) {
+        // Get unique user IDs
+        const userIds = [...new Set(rantsData.map(rant => rant.user_id))];
+        
+        // Fetch profiles for these users
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .in('id', userIds);
+          
+        if (profilesError) {
+          console.error('Error fetching profiles:', profilesError);
         }
-      }));
-      
-      if (pageNumber === 1) {
-        setRants(formattedRants);
-      } else {
-        setRants(prev => [...prev, ...formattedRants]);
+        
+        // Create a map of user IDs to profile data for quick lookup
+        const profilesMap = new Map();
+        profilesData?.forEach(profile => {
+          profilesMap.set(profile.id, profile);
+        });
+        
+        // Format data with user information
+        const formattedRants = rantsData.map(rant => {
+          const profile = profilesMap.get(rant.user_id);
+          return {
+            ...rant,
+            user: {
+              id: rant.user_id,
+              name: profile?.username || 'Anonymous',
+              avatar_url: profile?.avatar_url
+            }
+          };
+        });
+        
+        if (pageNumber === 1) {
+          setRants(formattedRants);
+        } else {
+          setRants(prev => [...prev, ...formattedRants]);
+        }
       }
       
       // If we got fewer results than expected, there are no more to load
-      if (data.length < 10) {
+      if (!rantsData || rantsData.length < 10) {
         setHasMore(false);
+      } else {
+        setPage(pageNumber + 1);
       }
-      
-      setPage(pageNumber + 1);
     } catch (error) {
       console.error('Error fetching rants:', error);
     } finally {
@@ -111,34 +138,44 @@ const Index = () => {
     if (!user) return;
     
     try {
-      const { data, error } = await supabase
+      // Add the rant
+      const { data: newRantData, error: newRantError } = await supabase
         .from('rants')
         .insert([
           { content, user_id: user.id }
         ])
-        .select(`
-          *,
-          profiles:user_id (
-            username,
-            avatar_url
-          )
-        `)
+        .select()
         .single();
       
-      if (error) {
-        console.error('Error creating rant:', error);
+      if (newRantError) {
+        console.error('Error creating rant:', newRantError);
         return;
       }
       
-      const newRant = {
-        ...data,
+      if (!newRantData) return;
+      
+      // Get the user's profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('username, avatar_url')
+        .eq('id', user.id)
+        .single();
+        
+      if (profileError) {
+        console.error('Error fetching profile for new rant:', profileError);
+      }
+      
+      // Create the formatted rant with user data
+      const newRant: RantWithUser = {
+        ...newRantData,
         user: {
-          id: data.user_id,
-          name: data.profiles?.username || 'Anonymous',
-          avatar_url: data.profiles?.avatar_url
+          id: user.id,
+          name: profileData?.username || 'Anonymous',
+          avatar_url: profileData?.avatar_url
         }
       };
       
+      // Add to state
       setRants(prev => [newRant, ...prev]);
     } catch (error) {
       console.error('Error creating rant:', error);
