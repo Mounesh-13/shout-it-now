@@ -1,28 +1,20 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PlusCircle, User, LogIn } from 'lucide-react';
+import { Home, PlusCircle, User, LogIn, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import AuthModal from './AuthModal';
+import { useAuth } from '@/context/AuthContext';
 
 const Header = () => {
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const location = useLocation();
-  const [isLoggedIn, setIsLoggedIn] = useState(false); // Placeholder until Supabase is integrated
+  const { user, signOut } = useAuth();
 
-  const handleAuthClick = () => {
-    setShowAuthModal(true);
-  };
-
-  const handleLogout = () => {
-    // Placeholder for Supabase logout
-    setIsLoggedIn(false);
-  };
-
-  // Placeholder login function for demo purposes
-  const handleDemoLogin = () => {
-    setIsLoggedIn(true);
-    setShowAuthModal(false);
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
@@ -43,7 +35,7 @@ const Header = () => {
             </Button>
           </Link>
           
-          {isLoggedIn && (
+          {user && (
             <>
               <Link to="/create">
                 <Button 
@@ -66,26 +58,22 @@ const Header = () => {
               </Link>
               
               <Button variant="outline" onClick={handleLogout}>
+                <LogOut className="mr-2 h-4 w-4" />
                 Logout
               </Button>
             </>
           )}
           
-          {!isLoggedIn && (
-            <Button onClick={handleAuthClick}>
-              <LogIn className="mr-2 h-4 w-4" />
-              Login
-            </Button>
+          {!user && (
+            <Link to="/auth">
+              <Button>
+                <LogIn className="mr-2 h-4 w-4" />
+                Login
+              </Button>
+            </Link>
           )}
         </div>
       </div>
-      
-      {showAuthModal && (
-        <AuthModal 
-          onClose={() => setShowAuthModal(false)} 
-          onLogin={handleDemoLogin}
-        />
-      )}
     </header>
   );
 };

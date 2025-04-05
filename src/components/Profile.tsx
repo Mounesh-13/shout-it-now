@@ -1,55 +1,114 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import RantCard from './RantCard';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/context/AuthContext';
 
 interface ProfileProps {
   userId: string;
   isCurrentUser?: boolean;
 }
 
+interface ProfileData {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  created_at: string;
+}
+
 const Profile = ({ userId, isCurrentUser = false }: ProfileProps) => {
-  // Mock data - will be replaced with Supabase data
-  const userData = {
-    id: userId,
-    name: 'Demo User',
-    avatar_url: '',
-    bio: 'Just a demo user who loves to rant!',
-    rants_count: 5,
-    joined_date: '2023-01-01',
-  };
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
+  const [userRants, setUserRants] = useState<any[]>([]);
+  const [likedRants, setLikedRants] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { user } = useAuth();
   
-  const userRants = [
-    {
-      id: '1',
-      content: 'This is a demo rant from my profile. I have a lot to say about this topic!',
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-      user: {
-        id: userId,
-        name: userData.name,
-        avatar_url: userData.avatar_url,
-      },
-      likes_count: 5,
-      comments_count: 2,
-    },
-    {
-      id: '2',
-      content: 'Another demo rant to show multiple rants on the profile page.',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
-      user: {
-        id: userId,
-        name: userData.name,
-        avatar_url: userData.avatar_url,
-      },
-      likes_count: 10,
-      comments_count: 3,
-    },
-  ];
+  // Fetch profile data
+  useEffect(() => {
+    const fetchProfileData = async () => {
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        
+        if (error) {
+          console.error('Error fetching profile:', error);
+          return;
+        }
+        
+        setProfileData(data);
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    const fetchUserRants = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('rants')
+          .select(`
+            *,
+            profiles:user_id (
+              username,
+              avatar_url
+            )
+          `)
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        
+        if (error) {
+          console.error('Error fetching user rants:', error);
+          return;
+        }
+        
+        // Format data to match the expected structure
+        const formattedRants = data.map(rant => ({
+          ...rant,
+          user: {
+            id: rant.user_id,
+            name: rant.profiles?.username || 'Anonymous',
+            avatar_url: rant.profiles?.avatar_url
+          }
+        }));
+        
+        setUserRants(formattedRants);
+      } catch (error) {
+        console.error('Error fetching user rants:', error);
+      }
+    };
+    
+    if (userId) {
+      fetchProfileData();
+      fetchUserRants();
+    }
+  }, [userId]);
   
-  const handleDeleteRant = (rantId: string) => {
-    // Will be replaced with Supabase integration
-    console.log('Delete rant:', rantId);
+  const handleDeleteRant = async (rantId: string) => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('rants')
+        .delete()
+        .eq('id', rantId)
+        .eq('user_id', user.id);
+      
+      if (error) {
+        console.error('Error deleting rant:', error);
+        return;
+      }
+      
+      setUserRants(prev => prev.filter(rant => rant.id !== rantId));
+    } catch (error) {
+      console.error('Error deleting rant:', error);
+    }
   };
 
   const getInitials = (name: string) => {
@@ -60,20 +119,27 @@ const Profile = ({ userId, isCurrentUser = false }: ProfileProps) => {
       .toUpperCase();
   };
 
+  if (isLoading) {
+    return <div className="text-center py-10">Loading profile...</div>;
+  }
+
+  if (!profileData) {
+    return <div className="text-center py-10">Profile not found</div>;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
         <Avatar className="h-16 w-16">
-          <AvatarImage src={userData.avatar_url} />
-          <AvatarFallback>{getInitials(userData.name)}</AvatarFallback>
+          <AvatarImage src={profileData.avatar_url || undefined} />
+          <AvatarFallback>{getInitials(profileData.username || 'User')}</AvatarFallback>
         </Avatar>
         
         <div>
-          <h1 className="text-2xl font-bold">{userData.name}</h1>
-          <p className="text-muted-foreground">{userData.bio}</p>
+          <h1 className="text-2xl font-bold">{profileData.username || 'Anonymous'}</h1>
           <div className="mt-1 flex gap-4 text-sm text-muted-foreground">
-            <span>{userData.rants_count} Rants</span>
-            <span>Joined {new Date(userData.joined_date).toLocaleDateString()}</span>
+            <span>{userRants.length} Rants</span>
+            <span>Joined {new Date(profileData.created_at).toLocaleDateString()}</span>
           </div>
         </div>
       </div>
@@ -93,7 +159,7 @@ const Profile = ({ userId, isCurrentUser = false }: ProfileProps) => {
               )}
             </div>
           ) : (
-            <div>
+            <div className="space-y-4">
               {userRants.map((rant) => (
                 <RantCard 
                   key={rant.id} 

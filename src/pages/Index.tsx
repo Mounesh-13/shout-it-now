@@ -4,75 +4,72 @@ import Header from '@/components/Header';
 import RantCard from '@/components/RantCard';
 import RantForm from '@/components/RantForm';
 import { Card } from '@/components/ui/card';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 const Index = () => {
   const [rants, setRants] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [isLoggedIn, setIsLoggedIn] = useState(false); // Placeholder until Supabase integration
+  const { user } = useAuth();
   const loadingRef = useRef(null);
   
-  // Mock data - will be replaced with Supabase data
-  const mockRants = [
-    {
-      id: '1',
-      content: 'Today I had to wait 20 minutes for my coffee at the local cafe, and when I finally got it, it was lukewarm. Is it too much to ask for hot coffee in exchange for $6?!',
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-      user: {
-        id: 'user1',
-        name: 'Coffee Lover',
-      },
-      likes_count: 15,
-      comments_count: 3,
-    },
-    {
-      id: '2',
-      content: 'Why does every streaming service need its own subscription now? I might as well go back to cable TV at this point! 📺💸',
-      created_at: new Date(Date.now() - 7200000).toISOString(),
-      user: {
-        id: 'user2',
-        name: 'TV Enthusiast',
-      },
-      likes_count: 42,
-      comments_count: 7,
-    },
-    {
-      id: '3',
-      content: 'Just spent 3 hours on hold with customer service only to be disconnected when I finally reached a human. Then they have the audacity to email me a satisfaction survey. 🤬',
-      created_at: new Date(Date.now() - 14400000).toISOString(),
-      user: {
-        id: 'user3',
-        name: 'Patient Person',
-      },
-      likes_count: 89,
-      comments_count: 12,
-    },
-  ];
-
-  // Simulate loading more rants for infinite scrolling
-  const fetchMoreRants = () => {
+  // Fetch rants from Supabase
+  const fetchRants = async (pageNumber = 1) => {
     if (isLoading || !hasMore) return;
     
     setIsLoading(true);
     
-    // Simulate API call - will be replaced with Supabase
-    setTimeout(() => {
-      const newRants = mockRants.map(rant => ({
+    try {
+      // For pagination, calculate the range
+      const from = (pageNumber - 1) * 10;
+      const to = from + 9;
+      
+      const { data, error } = await supabase
+        .from('rants')
+        .select(`
+          *,
+          profiles:user_id (
+            username,
+            avatar_url
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      
+      if (error) {
+        console.error('Error fetching rants:', error);
+        return;
+      }
+      
+      // Format data to match the expected structure
+      const formattedRants = data.map(rant => ({
         ...rant,
-        id: `${rant.id}-${page}`,
-        created_at: new Date(Date.now() - (page * 86400000) - Math.random() * 100000).toISOString(),
+        user: {
+          id: rant.user_id,
+          name: rant.profiles?.username || 'Anonymous',
+          avatar_url: rant.profiles?.avatar_url
+        }
       }));
       
-      setRants(prevRants => [...prevRants, ...newRants]);
-      setPage(prev => prev + 1);
-      setIsLoading(false);
+      if (pageNumber === 1) {
+        setRants(formattedRants);
+      } else {
+        setRants(prev => [...prev, ...formattedRants]);
+      }
       
-      // Stop after 5 pages for this demo
-      if (page >= 5) {
+      // If we got fewer results than expected, there are no more to load
+      if (data.length < 10) {
         setHasMore(false);
       }
-    }, 1000);
+      
+      setPage(pageNumber + 1);
+    } catch (error) {
+      console.error('Error fetching rants:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
   
   // Set up intersection observer for infinite scrolling
@@ -80,7 +77,7 @@ const Index = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore) {
-          fetchMoreRants();
+          fetchRants(page);
         }
       },
       { threshold: 1.0 }
@@ -95,41 +92,70 @@ const Index = () => {
         observer.unobserve(loadingRef.current);
       }
     };
-  }, [hasMore, isLoading]);
+  }, [hasMore, isLoading, page]);
   
   // Initial load
   useEffect(() => {
-    fetchMoreRants();
-    
-    // Demo login - will be replaced with Supabase auth
-    setIsLoggedIn(false);
+    fetchRants(1);
   }, []);
   
   const handleNewRant = async (content: string) => {
-    // Will be replaced with Supabase integration
-    const newRant = {
-      id: `new-${Date.now()}`,
-      content,
-      created_at: new Date().toISOString(),
-      user: {
-        id: 'demo-user-id',
-        name: 'Demo User',
-      },
-      likes_count: 0,
-      comments_count: 0,
-      user_has_liked: false,
-    };
+    if (!user) return;
     
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    setRants(prevRants => [newRant, ...prevRants]);
-    return;
+    try {
+      const { data, error } = await supabase
+        .from('rants')
+        .insert([
+          { content, user_id: user.id }
+        ])
+        .select(`
+          *,
+          profiles:user_id (
+            username,
+            avatar_url
+          )
+        `)
+        .single();
+      
+      if (error) {
+        console.error('Error creating rant:', error);
+        return;
+      }
+      
+      const newRant = {
+        ...data,
+        user: {
+          id: data.user_id,
+          name: data.profiles?.username || 'Anonymous',
+          avatar_url: data.profiles?.avatar_url
+        }
+      };
+      
+      setRants(prev => [newRant, ...prev]);
+    } catch (error) {
+      console.error('Error creating rant:', error);
+    }
   };
   
-  const handleDeleteRant = (rantId: string) => {
-    // Will be replaced with Supabase integration
-    setRants(prevRants => prevRants.filter(rant => rant.id !== rantId));
+  const handleDeleteRant = async (rantId: string) => {
+    if (!user) return;
+    
+    try {
+      const { error } = await supabase
+        .from('rants')
+        .delete()
+        .eq('id', rantId)
+        .eq('user_id', user.id);
+      
+      if (error) {
+        console.error('Error deleting rant:', error);
+        return;
+      }
+      
+      setRants(prev => prev.filter(rant => rant.id !== rantId));
+    } catch (error) {
+      console.error('Error deleting rant:', error);
+    }
   };
 
   return (
@@ -137,7 +163,7 @@ const Index = () => {
       <Header />
       
       <div className="rant-container">
-        {isLoggedIn && (
+        {user && (
           <Card className="mb-6 p-4">
             <RantForm onSubmit={handleNewRant} />
           </Card>
@@ -156,7 +182,7 @@ const Index = () => {
               <RantCard
                 key={rant.id}
                 rant={rant}
-                currentUserId={isLoggedIn ? 'demo-user-id' : undefined}
+                currentUserId={user?.id}
                 onDelete={handleDeleteRant}
               />
             ))
