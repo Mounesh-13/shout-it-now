@@ -5,18 +5,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import RantCard from './RantCard';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
+import { Database } from '@/integrations/supabase/types';
 
 interface ProfileProps {
   userId: string;
   isCurrentUser?: boolean;
 }
 
-interface ProfileData {
-  id: string;
-  username: string;
-  avatar_url: string | null;
-  created_at: string;
-}
+type ProfileData = Database['public']['Tables']['profiles']['Row'];
+type RantData = Database['public']['Tables']['rants']['Row'] & {
+  profiles?: {
+    username: string | null;
+    avatar_url: string | null;
+  } | null;
+};
 
 const Profile = ({ userId, isCurrentUser = false }: ProfileProps) => {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);

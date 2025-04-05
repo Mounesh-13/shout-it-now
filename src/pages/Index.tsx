@@ -6,6 +6,14 @@ import RantForm from '@/components/RantForm';
 import { Card } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { Database } from '@/integrations/supabase/types';
+
+type RantWithProfile = Database['public']['Tables']['rants']['Row'] & {
+  profiles?: {
+    username: string | null;
+    avatar_url: string | null;
+  } | null;
+};
 
 const Index = () => {
   const [rants, setRants] = useState<any[]>([]);
